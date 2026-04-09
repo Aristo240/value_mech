@@ -167,7 +167,7 @@ def main():
     # folds only), to avoid hand-tuning regularization.
     unique_stmts = np.unique(y_statement)
     stmt_value = np.array([int(s.split("_")[0]) for s in unique_stmts])
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=cfg["seed"])
+    skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=cfg["seed"])
     fold_accs = []
     for fold, (tr_stmt_idx, te_stmt_idx) in enumerate(skf.split(unique_stmts, stmt_value)):
         tr_stmts = set(unique_stmts[tr_stmt_idx])
