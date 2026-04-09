@@ -1,0 +1,88 @@
+# All hyperparameters for the pilots. Do not pass ad-hoc CLI flags;
+# add knobs here and document them.
+
+seed: 0
+
+# GPU placement.
+#
+# gpu_ids are RELATIVE to CUDA_VISIBLE_DEVICES. If you launch with
+#   CUDA_VISIBLE_DEVICES=2,3,4,5 python -m src.pilot_b1_attractor
+# then the process sees four GPUs numbered 0..3 internally, and gpu_ids below
+# refer to those logical ids.
+#
+# Sizing guide (approximate, bf16, with KV cache off):
+#   ≤  8B   : 1 GPU per model
+#   9 – 16B : 2 GPUs per model
+#  17 – 35B : 3 GPUs per model
+#  36 – 75B : 6 GPUs per model
+#
+# For pilots that load BOTH base and instruct (B1/B2/B3), the two gpu_ids lists
+# MUST be disjoint unless both models fit on the same GPU.
+# For pilots that load only instruct (Pilot 5), the base.gpu_ids entry is unused.
+
+models:
+  base:
+    name: "Qwen/Qwen2.5-1.5B"
+    dtype: "bfloat16"
+    gpu_ids: [0]
+  instruct:
+    name: "Qwen/Qwen2.5-1.5B-Instruct"
+    dtype: "bfloat16"
+    gpu_ids: [0]                # both on one GPU for 1.5B pilot
+  max_memory_per_gpu: "75GiB"   # per-GPU budget for device_map="auto" sharding
+
+# Example configurations for larger models (copy over models: block to use):
+#
+# Llama-3.1-8B pair (1 GPU per model):
+#   base:     {name: "meta-llama/Llama-3.1-8B",          dtype: bfloat16, gpu_ids: [0]}
+#   instruct: {name: "meta-llama/Llama-3.1-8B-Instruct", dtype: bfloat16, gpu_ids: [1]}
+#
+# Gemma-2-9B pair (2 GPUs per model):
+#   base:     {name: "google/gemma-2-9b",    dtype: bfloat16, gpu_ids: [0, 1]}
+#   instruct: {name: "google/gemma-2-9b-it", dtype: bfloat16, gpu_ids: [2, 3]}
+#
+# Gemma-2-27B pair (3 GPUs per model, needs 6 GPUs total):
+#   base:     {name: "google/gemma-2-27b",    dtype: bfloat16, gpu_ids: [0, 1, 2]}
+#   instruct: {name: "google/gemma-2-27b-it", dtype: bfloat16, gpu_ids: [3, 4, 5]}
+#
+# Llama-3.1-70B (single-model pilots only, 6 GPUs):
+#   instruct: {name: "meta-llama/Llama-3.1-70B-Instruct", dtype: bfloat16, gpu_ids: [0,1,2,3,4,5]}
+
+data:
+  valueeval_root: "/tmp"            # expects <root>/training-english/{sentences,labels}.tsv
+  split: "training-english"
+
+extraction:
+  # Pre-committed mid-layer. Sensitivity sweep is a separate experiment.
+  # Qwen2.5-1.5B: 28 layers -> 14. Llama-3.1-8B: 32 -> 16. Gemma-2-9B: 42 -> 21.
+  # 70B: 80 -> 40. Override per-model if you change families.
+  layer: 14
+  max_length: 128
+  aggregation: "mean"               # 'mean' or 'last'
+  n_per_value: 200
+  activation_dtype: "float32"
+  batch_size: 8
+
+steering:
+  alphas: [-4.0, -2.0, -1.0, 0.0, 1.0, 2.0, 4.0]
+  layer: 14                         # must equal extraction.layer
+  pilot_value_indices: [0, 4, 8, 12, 16]
+
+pvq:
+  options: ["1", "2", "3", "4", "5", "6"]
+  n_prompt_seeds: 5
+  max_new_tokens: 1
+  use_chat_template_for_instruct: true
+
+neutral_prompts:
+  n: 50
+  max_new_tokens: 32
+
+stats:
+  n_bootstrap: 1000
+  n_permutations: 1000
+  ci: 0.95
+
+logging:
+  level: "INFO"
+  out_dir: "outputs"
