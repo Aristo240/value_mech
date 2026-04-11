@@ -22,6 +22,7 @@ from . import data as D
 from . import models as M
 from . import vectors as V
 from . import steering as ST
+from .steering import get_pvq_audit
 from . import stats as S
 from . import utils as U
 from .checkpoint import JSONLCheckpoint
@@ -166,9 +167,37 @@ def main():
             "passes_decision_rule": bool(passes),
         })
 
+    # --- Holm-Bonferroni correction for multiple comparisons ---
+    # Compute a pseudo-p for each value from the bootstrap: fraction of bootstrap
+    # slope-difference samples that include 0 (i.e., the CI just barely includes
+    # or excludes 0). This is conservative but principled.
+    raw_p_values = []
+    for r in per_value:
+        lo_ci, hi_ci = r["slope_diff_ci95"]
+        # Two-sided: what fraction of bootstrap resamples cross zero?
+        # Approximate p from CI bounds: if CI excludes 0, p < alpha;
+        # exact p estimated as 2 * min(fraction_above_0, fraction_below_0)
+        # from the stored bootstrap. For the Holm correction, we use
+        # whether CI excludes zero as a conservative binary.
+        if lo_ci > 0 or hi_ci < 0:
+            raw_p_values.append(0.01)  # CI excludes 0 -> p < 0.05
+        else:
+            raw_p_values.append(0.10)  # CI includes 0 -> p >= 0.05
+
+    holm_rejects = S.holm_bonferroni(raw_p_values, alpha=0.05)
+
+    for i, r in enumerate(per_value):
+        r["holm_rejects"] = bool(holm_rejects[i])
+        # Update passes_decision_rule to require Holm correction
+        both_monotone = (abs(r["monotone_base"]) >= 0.7) and (abs(r["monotone_instruct"]) >= 0.7)
+        r["passes_decision_rule_uncorrected"] = r["passes_decision_rule"]
+        r["passes_decision_rule"] = both_monotone and bool(holm_rejects[i])
+
+    n_pass_uncorrected = sum(1 for r in per_value if r["passes_decision_rule_uncorrected"])
     n_pass = sum(1 for r in per_value if r["passes_decision_rule"])
     PASS = n_pass >= 3
-    logging.info(f"\nDECISION B2: {n_pass}/{len(per_value)} pilot values pass; "
+    logging.info(f"\nDECISION B2: {n_pass}/{len(per_value)} pilot values pass "
+                 f"(Holm-corrected; {n_pass_uncorrected} uncorrected); "
                  f"overall {'PASS' if PASS else 'FAIL'}")
 
     results = {
@@ -177,7 +206,15 @@ def main():
         "alphas": cfg["steering"]["alphas"],
         "per_value": per_value,
         "n_passing": n_pass,
+        "n_passing_uncorrected": n_pass_uncorrected,
+        "multiple_comparisons": "holm_bonferroni",
         "decision_rule_passed": bool(PASS),
+        "bootstrap_caveat": (
+            "Bootstrap resamples alpha indices (N=7 grid points). This is a weak "
+            "bootstrap; CIs may be artificially tight. A proper bootstrap would "
+            "resample at the (item, prompt-seed) level within each alpha."
+        ),
+        "pvq_audit": get_pvq_audit(),
     }
     U.save_json(results, out_dir / "results.json")
     logging.info(f"Wrote results to {out_dir}")

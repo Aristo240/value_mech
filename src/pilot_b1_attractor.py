@@ -19,6 +19,7 @@ import numpy as np
 
 from . import data as D
 from . import models as M
+from . import stats as S
 from . import vectors as V
 from . import utils as U
 
@@ -80,7 +81,20 @@ def main():
         f"(angular distance {diffs[closest_idx]:.1f} deg)"
     )
 
-    # 7. Bootstrap over neutral-prompt indices into the cached act arrays.
+    # 7. Random baseline: what ratio would a random direction achieve?
+    H = base.hidden_size
+    n_random = cfg["stats"].get("n_random_baseline", 1000)
+    logging.info(f"Computing random baseline with {n_random} random unit vectors...")
+    null_ratios = S.random_projection_null(H, vv_instruct.vectors, n_random, rng)
+    null_mean = float(null_ratios.mean())
+    null_p95 = float(np.quantile(null_ratios, 0.95))
+    null_p99 = float(np.quantile(null_ratios, 0.99))
+    # p-value: fraction of random vectors with ratio >= observed
+    random_p = float((np.sum(null_ratios >= frac) + 1) / (n_random + 1))
+    logging.info(f"Random baseline: mean={null_mean:.4f}, 95th={null_p95:.4f}, "
+                 f"99th={null_p99:.4f}, p={random_p:.4f}")
+
+    # 8. Bootstrap over neutral-prompt indices into the cached act arrays.
     n_prompts = base_acts_full.shape[0]
     n_boot = min(cfg["stats"]["n_bootstrap"], 500)
     logging.info(f"Bootstrapping projection ratio with n={n_boot} resamples...")
@@ -105,6 +119,18 @@ def main():
         "projection_norm": float(np.linalg.norm(proj)),
         "projection_norm_ratio": float(frac),
         "projection_norm_ratio_ci95": [lo, hi],
+        "random_baseline": {
+            "n_random": n_random,
+            "mean_ratio": null_mean,
+            "p95_ratio": null_p95,
+            "p99_ratio": null_p99,
+            "p_value": random_p,
+            "interpretation": (
+                f"Observed ratio {frac:.3f} vs random baseline mean {null_mean:.4f} "
+                f"(99th percentile {null_p99:.4f}). "
+                f"p={random_p:.4f} under random-direction null."
+            ),
+        },
         "attractor_angle_deg": attractor_angle,
         "closest_value": D.SCHWARTZ_19[closest_idx],
         "closest_value_angle_deg": float(angles_19[closest_idx]),

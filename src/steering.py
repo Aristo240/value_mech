@@ -105,6 +105,28 @@ def _build_prompt(loaded: LoadedModel, item_text: str, use_chat: bool) -> tuple[
     return body, False
 
 
+# Global audit counters for PVQ scoring validation.
+_pvq_audit = {"total": 0, "top1_in_options": 0, "option_prob_mass": []}
+
+
+def get_pvq_audit() -> dict:
+    """Return PVQ scoring audit stats and reset counters."""
+    total = _pvq_audit["total"]
+    in_opt = _pvq_audit["top1_in_options"]
+    masses = _pvq_audit["option_prob_mass"]
+    result = {
+        "total_scored": total,
+        "top1_in_options": in_opt,
+        "top1_in_options_frac": in_opt / total if total > 0 else 0.0,
+        "mean_option_prob_mass": float(np.mean(masses)) if masses else 0.0,
+        "min_option_prob_mass": float(np.min(masses)) if masses else 0.0,
+    }
+    _pvq_audit["total"] = 0
+    _pvq_audit["top1_in_options"] = 0
+    _pvq_audit["option_prob_mass"] = []
+    return result
+
+
 @torch.no_grad()
 def score_pvq_item(
     loaded: LoadedModel,
@@ -120,6 +142,7 @@ def score_pvq_item(
     that don't change semantics); mean of per-seed expected scores."""
     option_ids = _option_token_ids(loaded.tokenizer, options)
     likert_values = np.array([float(o) for o in options], dtype=np.float32)
+    option_id_set = set(option_ids)
 
     preambles = [
         "",
@@ -150,6 +173,22 @@ def score_pvq_item(
         enc = {k: v.to(loaded.input_device) for k, v in enc.items()}
         out = loaded.model(**enc, use_cache=False)
         logits = out.logits[0, -1, :].float()
+
+        # --- PVQ logit audit ---
+        full_probs = torch.softmax(logits, dim=0)
+        top1_id = int(logits.argmax())
+        option_mass = float(full_probs[option_ids].sum())
+        _pvq_audit["total"] += 1
+        _pvq_audit["option_prob_mass"].append(option_mass)
+        if top1_id in option_id_set:
+            _pvq_audit["top1_in_options"] += 1
+        else:
+            top1_tok = loaded.tokenizer.decode([top1_id])
+            logging.debug(
+                f"PVQ audit: top-1 token '{top1_tok}' (id={top1_id}) is outside "
+                f"option set; option mass={option_mass:.3f}"
+            )
+
         opt_logits = logits[option_ids]
         log_probs = torch.log_softmax(opt_logits, dim=0).to("cpu").numpy()
         probs = np.exp(log_probs)

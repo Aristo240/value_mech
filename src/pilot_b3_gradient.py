@@ -20,6 +20,7 @@ from . import data as D
 from . import models as M
 from . import vectors as V
 from . import steering as ST
+from .steering import get_pvq_audit
 from . import stats as S
 from . import utils as U
 from .checkpoint import JSONLCheckpoint
@@ -120,6 +121,21 @@ def main():
             "scores_instruct": scores_i.tolist(),
         })
 
+    # --- Angle distribution diagnostics ---
+    circ_var = S.circular_variance(value_angles_19)
+    gap_info = S.angle_gap_uniformity(value_angles_19)
+    logging.info(f"\nAngle diagnostics:")
+    logging.info(f"  Circular variance: {circ_var:.3f} (1.0 = maximally spread)")
+    logging.info(f"  Gap CV: {gap_info['gap_cv']:.3f} (0.0 = perfectly uniform)")
+    logging.info(f"  Detected clusters: {gap_info['n_clusters']}")
+    logging.info(f"  Max gap: {gap_info['max_gap_deg']:.1f} deg (expected {gap_info['expected_gap_deg']:.1f})")
+    if gap_info["n_clusters"] <= 3:
+        logging.warning(
+            f"DIAGNOSTIC WARNING: Empirical angles collapse into {gap_info['n_clusters']} "
+            f"cluster(s) (gap CV={gap_info['gap_cv']:.2f}). The circumplex structure "
+            f"may not be present; cosine fit is fitting a near-binary variable."
+        )
+
     obs_r2, A, phi = S.cosine_fit_r2(value_angles_19, inertia)
     obs_r2_perm, p_perm, _ = S.permutation_p_value(
         value_angles_19, inertia, cfg["stats"]["n_permutations"], rng
@@ -137,6 +153,25 @@ def main():
         "alphas": alphas.tolist(),
         "value_angles_deg": value_angles_19.tolist(),
         "attractor_angle_deg": float(attractor_angle),
+        "angle_diagnostics": {
+            "circular_variance": circ_var,
+            "gap_cv": gap_info["gap_cv"],
+            "n_clusters": gap_info["n_clusters"],
+            "max_gap_deg": gap_info["max_gap_deg"],
+            "min_gap_deg": gap_info["min_gap_deg"],
+            "mean_gap_deg": gap_info["mean_gap_deg"],
+            "expected_gap_deg": gap_info["expected_gap_deg"],
+            "interpretation": (
+                "Circumplex predicts 19 equally-spaced angles (gap CV ~ 0, "
+                "circular variance ~ 1). "
+                f"Observed: gap CV={gap_info['gap_cv']:.2f}, "
+                f"circ_var={circ_var:.2f}, "
+                f"{gap_info['n_clusters']} clusters. "
+                + ("Angles are well-distributed." if gap_info["n_clusters"] >= 10
+                   else f"WARNING: angles collapse into {gap_info['n_clusters']} cluster(s) — "
+                        "cosine fit may be unreliable.")
+            ),
+        },
         "per_value": rows,
         "cosine_fit": {
             "r2": float(obs_r2),
@@ -146,6 +181,7 @@ def main():
             "n_permutations": cfg["stats"]["n_permutations"],
         },
         "decision_rule_passed": bool(PASS),
+        "pvq_audit": get_pvq_audit(),
     }
     U.save_json(results, out_dir / "results.json")
     logging.info(f"Wrote results to {out_dir}")

@@ -6,3 +6,6 @@ __pycache__/
 outputs/
 logs/
 .env
+.claude/
+.nfs*
+scripts/.nfs*

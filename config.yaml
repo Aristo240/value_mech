@@ -29,7 +29,7 @@ models:
     name: "Qwen/Qwen2.5-1.5B-Instruct"
     dtype: "bfloat16"
     gpu_ids: [0]                # both on one GPU for 1.5B pilot
-  max_memory_per_gpu: "75GiB"   # per-GPU budget for device_map="auto" sharding
+  max_memory_per_gpu: "30GiB"   # per-GPU budget for device_map="auto" sharding (V100-32GB)
 
 # Example configurations for larger models (copy over models: block to use):
 #

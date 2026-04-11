@@ -1,0 +1,15 @@
+seed: 0
+models:
+  base:     {name: "google/gemma-2-27b",    dtype: bfloat16, gpu_ids: [0, 1]}
+  instruct: {name: "google/gemma-2-27b-it", dtype: bfloat16, gpu_ids: [2, 3]}
+  max_memory_per_gpu: "30GiB"
+data: {valueeval_root: "/tmp", split: "training-english"}
+extraction: {layer: 23, max_length: 128, aggregation: "mean", n_per_value: 200,
+             activation_dtype: "float32", batch_size: 2}
+steering: {alphas: [-4.0, -2.0, -1.0, 0.0, 1.0, 2.0, 4.0], layer: 23,
+           pilot_value_indices: [0, 4, 8, 12, 16]}
+pvq: {options: ["1","2","3","4","5","6"], n_prompt_seeds: 5, max_new_tokens: 1,
+      use_chat_template_for_instruct: true}
+neutral_prompts: {n: 50, max_new_tokens: 32}
+stats: {n_bootstrap: 1000, n_permutations: 1000, ci: 0.95}
+logging: {level: "INFO", out_dir: "outputs/gemma27"}

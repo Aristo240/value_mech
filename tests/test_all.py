@@ -237,6 +237,86 @@ def test_pvq_first_person_coverage():
     print("PASS test_pvq_first_person_coverage")
 
 
+# --- Holm-Bonferroni correction -------------------------------------------
+
+def test_holm_bonferroni_all_reject():
+    """All p-values well below alpha should all reject."""
+    pvals = [0.001, 0.002, 0.003, 0.004, 0.005]
+    rejects = S.holm_bonferroni(pvals, alpha=0.05)
+    assert all(rejects), f"Expected all rejections: {rejects}"
+    print("PASS test_holm_bonferroni_all_reject")
+
+
+def test_holm_bonferroni_none_reject():
+    """All p-values above alpha should all fail to reject."""
+    pvals = [0.1, 0.2, 0.3, 0.4, 0.5]
+    rejects = S.holm_bonferroni(pvals, alpha=0.05)
+    assert not any(rejects), f"Expected no rejections: {rejects}"
+    print("PASS test_holm_bonferroni_none_reject")
+
+
+def test_holm_bonferroni_partial_reject():
+    """Mixed p-values: only the smallest should survive correction."""
+    pvals = [0.005, 0.01, 0.03, 0.06, 0.1]
+    rejects = S.holm_bonferroni(pvals, alpha=0.05)
+    # Sorted: 0.005 < 0.05/5=0.01 ✓, 0.01 < 0.05/4=0.0125 ✓,
+    # 0.03 < 0.05/3=0.0167? No → stop
+    assert rejects[0] and rejects[1], f"First two should reject: {rejects}"
+    assert not rejects[2] and not rejects[3] and not rejects[4]
+    print("PASS test_holm_bonferroni_partial_reject")
+
+
+# --- Random baseline for projection ratio ----------------------------------
+
+def test_random_projection_null_reasonable():
+    """Random vectors projected onto a k-dim subspace of R^d should have
+    expected ratio ~ sqrt(k/d) for orthonormal basis."""
+    rng = np.random.default_rng(42)
+    d = 1000
+    k = 19
+    # Build orthonormal basis
+    Q, _ = np.linalg.qr(rng.normal(size=(d, k)))
+    basis = Q.T[:k]  # (k, d)
+    ratios = S.random_projection_null(d, basis, n_random=500, rng=rng)
+    expected = math.sqrt(k / d)  # ~ 0.138
+    mean_ratio = float(ratios.mean())
+    assert abs(mean_ratio - expected) < 0.03, (
+        f"Mean random ratio {mean_ratio:.4f} far from expected {expected:.4f}"
+    )
+    print(f"PASS test_random_projection_null_reasonable (mean={mean_ratio:.4f}, "
+          f"expected~{expected:.4f})")
+
+
+# --- Circular diagnostics ---------------------------------------------------
+
+def test_circular_variance_uniform():
+    """Uniformly spaced angles should have high circular variance."""
+    angles = np.linspace(0, 360, 19, endpoint=False)
+    cv = S.circular_variance(angles)
+    assert cv > 0.95, f"Uniform angles should have circ_var > 0.95, got {cv}"
+    print(f"PASS test_circular_variance_uniform (cv={cv:.4f})")
+
+
+def test_circular_variance_clustered():
+    """All angles near 0 should have low circular variance."""
+    angles = np.array([0, 1, 2, 3, 4, 355, 356, 357, 358, 359], dtype=float)
+    cv = S.circular_variance(angles)
+    assert cv < 0.1, f"Clustered angles should have circ_var < 0.1, got {cv}"
+    print(f"PASS test_circular_variance_clustered (cv={cv:.4f})")
+
+
+def test_angle_gap_uniformity_detects_clusters():
+    """Bimodal distribution (0° and 180°) should detect few clusters with high CV."""
+    angles = np.array([0, 1, 2, 3, 4, 180, 181, 182, 183, 184], dtype=float)
+    info = S.angle_gap_uniformity(angles)
+    assert info["n_clusters"] <= 4, f"Expected few clusters, got {info['n_clusters']}"
+    assert info["gap_cv"] > 1.0, f"Expected high gap CV, got {info['gap_cv']}"
+    # Key test: max gap should be >> expected gap (36 deg for 10 points)
+    assert info["max_gap_deg"] > 100, f"Expected large max gap, got {info['max_gap_deg']}"
+    print(f"PASS test_angle_gap_uniformity_detects_clusters (n={info['n_clusters']}, "
+          f"cv={info['gap_cv']:.2f}, max_gap={info['max_gap_deg']:.0f}°)")
+
+
 def test_checkpoint_roundtrip_and_resume():
     import os, tempfile
     from src.checkpoint import JSONLCheckpoint, save_array_atomic, load_array_if_exists
@@ -287,5 +367,12 @@ if __name__ == "__main__":
     test_bootstrap_ci_contains_true_mean()
     test_steering_hook_adds_exact_amount()
     test_pvq_first_person_coverage()
+    test_holm_bonferroni_all_reject()
+    test_holm_bonferroni_none_reject()
+    test_holm_bonferroni_partial_reject()
+    test_random_projection_null_reasonable()
+    test_circular_variance_uniform()
+    test_circular_variance_clustered()
+    test_angle_gap_uniformity_detects_clusters()
     test_checkpoint_roundtrip_and_resume()
     print("\nAll tests passed.")

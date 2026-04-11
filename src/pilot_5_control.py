@@ -151,9 +151,35 @@ def main():
     acc_drop = orig_acc - mean_shuffle_acc
     logging.info(f"Original probe accuracy: {orig_acc:.3f}")
     logging.info(f"Accuracy drop under shuffle: {acc_drop:.3f}")
-    logging.info(
-        f"Interpretation: {'Probe likely detects VALUE-SPEAKER content (drop > 0.2)' if acc_drop > 0.2 else 'Probe may be detecting POSITIONAL ARTIFACTS (drop <= 0.2)'}"
-    )
+
+    # Determine if shuffled accuracy is at chance (within 2 SD of 0.5).
+    shuffled_at_chance = abs(mean_shuffle_acc - 0.5) < 2 * std_shuffle_acc
+
+    if acc_drop > 0.2 and shuffled_at_chance:
+        interp = (
+            "Speaker-label shuffle drops probe accuracy to chance "
+            f"({mean_shuffle_acc:.3f} +/- {std_shuffle_acc:.3f}). "
+            "This is EXPECTED whether the original signal is positional "
+            "(chat-template features) or semantic (value-speaker content) — "
+            "the shuffle breaks both. The control confirms the probe relies on "
+            "speaker-label-correlated features but CANNOT distinguish positional "
+            "from semantic signal. Test 5b (per-value cosine divergence) is the "
+            "substantive test for value-specific encoding."
+        )
+    elif acc_drop > 0.2 and not shuffled_at_chance:
+        interp = (
+            "Shuffled accuracy is above chance, suggesting residual learnable "
+            "structure even after label permutation — possibly driven by "
+            "value-specific features that partially predict speaker role."
+        )
+    else:
+        interp = (
+            "Small accuracy drop under shuffle suggests the probe succeeds via "
+            "features that survive speaker-label permutation (e.g., value content "
+            "alone, independent of speaker role)."
+        )
+
+    logging.info(f"Interpretation: {interp}")
 
     results = {
         "n_shuffles": N_SHUFFLES,
@@ -165,13 +191,8 @@ def main():
         "shuffled_median_cos_mean": mean_shuffle_cos,
         "shuffled_median_cos_all": shuffle_median_cos,
         "accuracy_drop": acc_drop,
-        "interpretation": (
-            "Large accuracy drop under speaker-label shuffle confirms the probe "
-            "detects value-speaker content, not just template-position features."
-            if acc_drop > 0.2
-            else "Small accuracy drop suggests the probe may be detecting "
-            "template-position artifacts rather than value-speaker content."
-        ),
+        "shuffled_at_chance": shuffled_at_chance,
+        "interpretation": interp,
     }
     U.save_json(results, out_dir / "results.json")
     logging.info(f"Wrote results to {out_dir}")

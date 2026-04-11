@@ -1,0 +1,15 @@
+seed: 0
+models:
+  base:     {name: "meta-llama/Llama-3.1-70B",          dtype: bfloat16, gpu_ids: [0, 1, 2, 3, 4, 5]}
+  instruct: {name: "meta-llama/Llama-3.1-70B-Instruct", dtype: bfloat16, gpu_ids: [0, 1, 2, 3, 4, 5]}
+  max_memory_per_gpu: "30GiB"
+data: {valueeval_root: "/tmp", split: "training-english"}
+extraction: {layer: 40, max_length: 128, aggregation: "mean", n_per_value: 100,
+             activation_dtype: "float32", batch_size: 1}
+steering: {alphas: [-4.0, -2.0, -1.0, 0.0, 1.0, 2.0, 4.0], layer: 40,
+           pilot_value_indices: [0, 4, 8, 12, 16]}
+pvq: {options: ["1","2","3","4","5","6"], n_prompt_seeds: 5, max_new_tokens: 1,
+      use_chat_template_for_instruct: true}
+neutral_prompts: {n: 50, max_new_tokens: 32}
+stats: {n_bootstrap: 500, n_permutations: 500, ci: 0.95}
+logging: {level: "INFO", out_dir: "outputs/llama70"}
